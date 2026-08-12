@@ -2071,7 +2071,19 @@ textarea.form-control {
     -webkit-text-fill-color: transparent !important;
     text-shadow: 0 1.5px 3px rgba(0, 0, 0, 0.4) !important; /* Subtle dark shadow for dynamic contrast */
     font-weight: 900 !important;
-    margin-bottom: 40px !important; /* Spacing directly to the action buttons */
+    margin-bottom: 28px !important; /* 24-32px spacing to description */
+}
+
+.landing-view-active .hero-subtitle {
+    font-size: 20px !important; /* Slightly smaller typography to fit naturally */
+    font-weight: 500 !important; /* Medium weight */
+    line-height: 1.6 !important;
+    color: #FFFFFF !important; /* Crisp white color */
+    text-shadow: 0 2px 8px rgba(0,0,0,0.45) !important; /* Subtle dark text shadow for visibility over light silver/campus video */
+    margin-top: 0 !important;
+    margin-bottom: 44px !important; /* 40-48px spacing to action buttons */
+    max-width: 760px !important;
+    text-align: center !important;
 }
 
 .landing-view-active .hero-buttons {
