@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Student Grievance Portal | DVR & Dr. HS MIC College of Technology</title>
+    <meta name="description" content="Secure, confidential, and automated student grievance redressal portal for DVR & Dr. HS MIC College of Technology.">
+    <!-- Favicon -->
+    <link rel="icon" type="image/png" href="assets/mic-logo.png">
+    <!-- Premium Stylesheet -->
+    <link rel="stylesheet" href="style.css?v=1.3">
+    <!-- Supabase CDN Client (for production live connection) -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+
+    <!-- STICKY SITE HEADER (Shared across Student views) -->
+    <header class="site-header" id="site-header">
+        <div class="logo-container" id="header-logo-nav" style="cursor: pointer;">
+            <img src="assets/mic-logo.png" alt="DVR & Dr. HS MIC College Logo" class="college-logo" onerror="this.src='https://via.placeholder.com/48?text=MIC'">
+            <div class="college-names">
+                <span class="college-name-main">DVR & Dr. HS MIC</span>
+                <span class="college-name-sub">College of Technology</span>
+            </div>
+        </div>
+        <div class="header-actions" id="header-user-actions">
+            <!-- Dynamic header buttons injected by app.js router -->
+            <button class="btn btn-outline" id="nav-login-btn">Login</button>
+        </div>
+    </header>
+
+    <!-- MAIN APP VIEWPORT -->
+    <main id="app-viewport" class="animate-fade-in">
+        <!-- Views (Landing, Login, Privacy, Dashboard, Raise form, Track page, Admin panel) will be dynamically loaded here by app.js -->
+    </main>
+
+    <!-- DYNAMIC GLOBAL MODAL CONTAINER -->
+    <div class="modal-overlay" id="global-modal-overlay">
+        <div class="modal-window" id="global-modal-window">
+            <!-- Modal contents will be dynamically injected here -->
+        </div>
+    </div>
+
+    <!-- MAIN SPA ROUTER SCRIPT -->
+    <script type="module" src="app.js?v=1.3"></script>
+</body>
+</html>
