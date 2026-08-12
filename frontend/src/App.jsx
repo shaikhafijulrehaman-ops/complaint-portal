@@ -462,9 +462,7 @@ export default function App() {
               <BackgroundVideo />
               <h1 className="hero-title">Student Grievance Portal</h1>
               <p className="hero-subtitle">
-                A secure and confidential platform where every student can raise concerns without fear. 
-                Your identity remains protected, your information is securely encrypted, and every complaint 
-                is reviewed only by authorized grievance officers.
+                A secure, encrypted, and confidential portal for raising and tracking student concerns.
               </p>
               <div className="hero-buttons">
                 <button className="btn btn-primary btn-lg hover-lift" onClick={() => {

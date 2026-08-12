@@ -1981,7 +1981,7 @@ textarea.form-control {
     left: 0;
     width: 100%;
     height: 100%;
-    background: rgba(238, 241, 244, 0.25) !important; /* Light premium silver-white transparent overlay (#EEF1F4 at 25% opacity = 75% visibility) */
+    background: rgba(220, 226, 232, 0.28) !important; /* Uniform Light Silver Overlay (matching reference style) */
     backdrop-filter: none !important; /* No blur to preserve crisp campus visuals */
     z-index: 2;
 }
@@ -2000,38 +2000,45 @@ textarea.form-control {
    CINEMATIC HEADER & HERO INTEGRATION (LANDING VIEW ACTIVE)
    ========================================================================== */
 .landing-view-active .site-header {
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    background-color: rgba(255, 255, 255, 0.70) !important;
+    position: absolute !important;
+    top: 0 !important;
+    left: 0 !important;
+    width: 100% !important;
+    background: rgba(255, 255, 255, 0.15) !important; /* Subtle transparent glass effect */
     backdrop-filter: blur(8px) !important;
     -webkit-backdrop-filter: blur(8px) !important;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.25) !important;
-    box-shadow: 0 4px 30px rgba(0, 0, 0, 0.03) !important;
-    z-index: 1000;
+    border-bottom: none !important;
+    box-shadow: none !important;
+    z-index: 1000 !important;
 }
 
 .landing-view-active .hero-section {
-    padding-top: calc(var(--header-height) + 120px) !important;
+    min-height: 90vh !important; /* Increased to 90vh to extend video down */
+    display: flex !important;
+    flex-direction: column !important;
+    justify-content: center !important;
+    align-items: center !important;
+    padding-top: 130px !important; /* Reduced top padding to decrease empty space after header */
+    padding-bottom: 90px !important; /* 70-100px bottom padding to reduce white space */
     background: transparent !important;
+    position: relative !important;
 }
 
 /* Logo Pill Backdrop for Brand Sharpness */
 .landing-view-active .site-header .logo-container {
-    background: rgba(255, 255, 255, 0.85) !important;
+    background: rgba(255, 255, 255, 0.20) !important;
     padding: 6px 18px !important;
     border-radius: 9999px !important;
-    backdrop-filter: blur(4px) !important;
-    -webkit-backdrop-filter: blur(4px) !important;
-    border: 1px solid rgba(255, 255, 255, 0.6) !important;
-    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05) !important;
+    backdrop-filter: blur(10px) !important;
+    -webkit-backdrop-filter: blur(10px) !important;
+    border: 1px solid rgba(255, 255, 255, 0.25) !important;
+    box-shadow: none !important;
     transition: var(--transition) !important;
 }
 
 .landing-view-active .site-header .logo-container:hover {
-    background: rgba(255, 255, 255, 0.95) !important;
-    border-color: rgba(255, 255, 255, 0.9) !important;
+    background: rgba(255, 255, 255, 0.35) !important;
+    border-color: rgba(255, 255, 255, 0.40) !important;
 }
 
 .landing-view-active .site-header .college-logo {
@@ -2051,39 +2058,69 @@ textarea.form-control {
 
 /* Glassy Translucent Login Button */
 .landing-view-active .site-header .btn-outline {
-    background-color: rgba(255, 255, 255, 0.65) !important;
-    border: 1px solid rgba(15, 76, 129, 0.25) !important;
-    color: var(--primary) !important;
-    backdrop-filter: blur(4px) !important;
-    -webkit-backdrop-filter: blur(4px) !important;
+    background-color: #FFFFFF !important; /* Fully opaque white */
+    border: 1px solid rgba(15, 76, 129, 0.15) !important;
+    color: #0F4C81 !important; /* Deep college blue */
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08) !important; /* Soft shadow */
+    font-weight: 600 !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
 }
 
 .landing-view-active .site-header .btn-outline:hover {
-    background-color: var(--primary) !important;
-    color: white !important;
-    border-color: var(--primary) !important;
+    background-color: #F8FAFC !important;
+    color: #0F4C81 !important;
+    border-color: rgba(15, 76, 129, 0.3) !important;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12) !important;
 }
 
 .landing-view-active .hero-title {
-    background: linear-gradient(to bottom, #0F4C81 0%, #0F4C81 50%, #8CC8F5 50%, #8CC8F5 100%) !important;
+    background-image: 
+      linear-gradient(120deg, transparent 35%, rgba(255, 255, 255, 0.85) 50%, transparent 65%),
+      linear-gradient(to bottom, #D1D5DB 0%, #D1D5DB 50%, #8CC8F5 50%, #8CC8F5 100%) !important;
+    background-size: 200% 100%, 100% 100% !important;
+    background-position: -200% 0, 0 0 !important;
+    background-repeat: no-repeat, no-repeat !important;
     -webkit-background-clip: text !important;
     background-clip: text !important;
     -webkit-text-fill-color: transparent !important;
-    text-shadow: 0 1.5px 3px rgba(0, 0, 0, 0.4) !important; /* Subtle dark shadow for dynamic contrast */
+    text-shadow: 0 1.5px 3px rgba(0, 0, 0, 0.4) !important; /* Premium soft shadow outlining the letters */
     font-weight: 900 !important;
-    margin-bottom: 28px !important; /* 24-32px spacing to description */
+    margin-bottom: 36px !important; /* 32-40px spacing to description */
+    animation: textShimmer 6s infinite linear !important; /* Premium sparkle sweep every 6 seconds */
+}
+
+@keyframes textShimmer {
+    0% {
+        background-position: -150% 0, 0 0;
+    }
+    25% {
+        background-position: 150% 0, 0 0;
+    }
+    100% {
+        background-position: 150% 0, 0 0;
+    }
 }
 
 .landing-view-active .hero-subtitle {
-    font-size: 20px !important; /* Slightly smaller typography to fit naturally */
-    font-weight: 500 !important; /* Medium weight */
+    font-size: 24px !important; /* Increased font-size for prominent display */
+    font-weight: 600 !important; /* Strong semi-bold weight */
     line-height: 1.6 !important;
     color: #FFFFFF !important; /* Crisp white color */
-    text-shadow: 0 2px 8px rgba(0,0,0,0.45) !important; /* Subtle dark text shadow for visibility over light silver/campus video */
+    text-shadow: 0 2px 8px rgba(0, 0, 0, 0.45) !important; /* Clean original dark drop shadow */
     margin-top: 0 !important;
-    margin-bottom: 44px !important; /* 40-48px spacing to action buttons */
-    max-width: 760px !important;
+    margin-bottom: 65px !important; /* 55-70px spacing to action buttons */
+    max-width: 1200px !important;
+    width: 100% !important;
     text-align: center !important;
+    white-space: nowrap !important; /* Forces exactly one line on desktop */
+}
+
+@media (max-width: 992px) {
+    .landing-view-active .hero-subtitle {
+        font-size: 20px !important;
+        white-space: normal !important; /* Allow wrapping on smaller viewports to prevent layout breakage */
+    }
 }
 
 .landing-view-active .hero-buttons {
@@ -2103,23 +2140,49 @@ textarea.form-control {
 }
 
 .landing-view-active .hero-buttons .btn-secondary {
-    background-color: rgba(255, 255, 255, 0.90) !important;
-    color: var(--primary) !important;
-    border: 1px solid rgba(15, 76, 129, 0.3) !important;
-    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.08) !important;
+    background-color: #FFFFFF !important; /* Solid white background */
+    color: #0F4C81 !important; /* Deep blue text */
+    border: 1px solid rgba(15, 76, 129, 0.25) !important;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.05) !important;
 }
 .landing-view-active .hero-buttons .btn-secondary:hover {
-    background-color: var(--secondary) !important;
-    color: white !important;
-    border-color: var(--secondary) !important;
+    background-color: #F8FAFC !important;
+    color: #0F4C81 !important;
+    border-color: rgba(15, 76, 129, 0.4) !important;
     transform: translateY(-2px) !important;
 }
 
 /* Mobile Responsiveness Visibility adjustments */
 @media (max-width: 768px) {
     .landing-view-active .hero-video-overlay {
-        background: rgba(238, 241, 244, 0.35) !important; /* Slightly stronger silver-white on mobile for text safety */
+        background: rgba(220, 226, 232, 0.28) !important; /* Uniform Light Silver Overlay on mobile too */
         backdrop-filter: none !important;
     }
+    .landing-view-active .hero-buttons {
+        flex-direction: column !important;
+        width: 100% !important;
+        max-width: 320px !important;
+        gap: 12px !important;
+    }
+    .landing-view-active .hero-buttons .btn {
+        width: 100% !important;
+    }
+}
+
+/* Layout bug fixes: remove right-side line and transparent scrollbar track */
+.landing-view-active::-webkit-scrollbar-track,
+.landing-view-active ::-webkit-scrollbar-track {
+    background: transparent !important;
+}
+
+.landing-view-active,
+.landing-view-active .hero-section,
+.landing-view-active .hero-video-container,
+.landing-view-active .hero-video {
+    border-right: none !important;
+    border: none !important;
+    outline: none !important;
+    box-shadow: none !important;
+    max-width: none !important;
 }
 
