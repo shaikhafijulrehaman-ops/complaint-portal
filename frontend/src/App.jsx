@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Api } from './api.js?v=1.3';
 import { Icon } from './components/Icon.jsx';
 import { DEFAULT_CATEGORIES, DEFAULT_COMPLAINT_TYPES, DEFAULT_CONTACTS } from './js/state.js?v=1.3';
+import BackgroundVideo from './components/BackgroundVideo.jsx';
 
 export default function App() {
   // Navigation & Session States
@@ -386,7 +387,7 @@ export default function App() {
   });
 
   return (
-    <div className="flex flex-col min-h-screen">
+    <div className={`flex flex-col min-h-screen ${view === 'landing' ? 'landing-view-active' : ''}`}>
       
       {/* Toast Notifications */}
       <div className="toast-container">
@@ -458,7 +459,7 @@ export default function App() {
         {view === 'landing' && (
           <div>
             <section className="hero-section animate-slide-up">
-              <div className="hero-tag">DVR & Dr. HS MIC College of Technology</div>
+              <BackgroundVideo />
               <h1 className="hero-title">Student Grievance Portal</h1>
               <p className="hero-subtitle">
                 A secure and confidential platform where every student can raise concerns without fear. 

@@ -4,6 +4,7 @@ import path from 'path';
 import dotenv from 'dotenv';
 import mongoose from 'mongoose';
 import connectDB from './config/db.js';
+import fs from 'fs';
 
 // Route Imports
 import authRoutes from './routes/auth.js';
@@ -28,6 +29,53 @@ app.use(express.urlencoded({ limit: '10mb', extended: true }));
 // Static directory for file uploads
 const __dirname = path.resolve();
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
+// Video Streaming Endpoint (Bypasses database availability check middleware)
+app.get('/api/video', (req, res) => {
+  const videoPath = req.query.path || process.env.PUBLIC_VIDEO_PATH || "C:\\Users\\shaik\\Downloads\\header video of complaint portal.mp4";
+  
+  if (!videoPath) {
+    return res.status(400).send('Video path is not specified');
+  }
+
+  // Security: resolve path and check it is a valid video file
+  const resolvedPath = path.resolve(videoPath);
+  const ext = path.extname(resolvedPath).toLowerCase();
+  if (ext !== '.mp4' && ext !== '.webm' && ext !== '.ogg' && ext !== '.mov') {
+    return res.status(403).send('Access denied: Invalid file type');
+  }
+
+  if (!fs.existsSync(resolvedPath)) {
+    return res.status(404).send('Video file not found');
+  }
+
+  const stat = fs.statSync(resolvedPath);
+  const fileSize = stat.size;
+  const range = req.headers.range;
+
+  if (range) {
+    const parts = range.replace(/bytes=/, "").split("-");
+    const start = parseInt(parts[0], 10);
+    const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
+    const chunksize = (end - start) + 1;
+    const file = fs.createReadStream(resolvedPath, { start, end });
+    const head = {
+      'Content-Range': `bytes ${start}-${end}/${fileSize}`,
+      'Accept-Ranges': 'bytes',
+      'Content-Length': chunksize,
+      'Content-Type': `video/${ext === '.mov' ? 'quicktime' : ext.slice(1)}`,
+    };
+    res.writeHead(206, head);
+    file.pipe(res);
+  } else {
+    const head = {
+      'Content-Length': fileSize,
+      'Content-Type': `video/${ext === '.mov' ? 'quicktime' : ext.slice(1)}`,
+    };
+    res.writeHead(200, head);
+    fs.createReadStream(resolvedPath).pipe(res);
+  }
+});
 
 // Database availability validation middleware
 app.use('/api', (req, res, next) => {
