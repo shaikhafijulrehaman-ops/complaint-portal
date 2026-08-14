@@ -39,8 +39,8 @@ const ComplaintSchema = new mongoose.Schema({
   },
   status: {
     type: String,
-    enum: ['Submitted', 'Under Review', 'Assigned', 'Resolved', 'Closed'],
-    default: 'Submitted'
+    enum: ['Pending', 'Under Review', 'In Progress', 'Resolved', 'Rejected', 'Closed'],
+    default: 'Pending'
   },
   priority: {
     type: String,
@@ -55,6 +55,26 @@ const ComplaintSchema = new mongoose.Schema({
     type: String,
     default: ''
   },
+  statusHistory: [
+    {
+      previousStatus: {
+        type: String,
+        required: true
+      },
+      newStatus: {
+        type: String,
+        required: true
+      },
+      changedBy: {
+        type: String,
+        required: true
+      },
+      changedAt: {
+        type: Date,
+        default: Date.now
+      }
+    }
+  ],
   createdAt: {
     type: Date,
     default: Date.now
@@ -66,6 +86,11 @@ const ComplaintSchema = new mongoose.Schema({
 }, {
   timestamps: { createdAt: 'createdAt', updatedAt: 'updatedAt' }
 });
+
+// Performance indexing
+ComplaintSchema.index({ category: 1 });
+ComplaintSchema.index({ status: 1 });
+ComplaintSchema.index({ createdAt: -1 });
 
 const Complaint = mongoose.model('Complaint', ComplaintSchema);
 export default Complaint;

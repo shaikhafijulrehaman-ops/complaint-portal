@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
 
+import { BACKEND_BASE } from '../api.js';
+
 // Single configurable variable for the video path
 export const PUBLIC_VIDEO_PATH = "/assets/header_video.mp4";
 
@@ -30,7 +32,7 @@ export default function BackgroundVideo() {
   // Determine the correct source: stream local files from the backend, load URLs directly
   const isLocalPath = /^[a-zA-Z]:\\|^file:\/\//.test(PUBLIC_VIDEO_PATH);
   const videoSrc = isLocalPath
-    ? `http://localhost:5000/api/video?path=${encodeURIComponent(PUBLIC_VIDEO_PATH)}`
+    ? `${BACKEND_BASE}/api/video?path=${encodeURIComponent(PUBLIC_VIDEO_PATH)}`
     : PUBLIC_VIDEO_PATH;
 
   return (

@@ -4,27 +4,30 @@ import path from 'path';
 import Complaint from '../models/Complaint.js';
 import EmailLog from '../models/EmailLog.js';
 import Contact from '../models/Contact.js';
+import Counter from '../models/Counter.js';
 import { protect, adminProtect } from '../middleware/auth.js';
+import { sendGrievanceEmail } from '../utils/mailer.js';
 
 const router = express.Router();
 
-// Helper to generate unique complaint ID (Format: CMP-XXXXXXXX)
+// Helper to generate unique sequential complaint ID atomically (Format: MIC-GRV-YYYYMMDD-XXXX)
 const generateUniqueId = async () => {
-  const chars = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ';
-  let exists = true;
-  let code = '';
-  
-  while (exists) {
-    code = '';
-    for (let i = 0; i < 8; i++) {
-      code += chars[Math.floor(Math.random() * chars.length)];
-    }
-    const count = await Complaint.countDocuments({ complaint_id: `CMP-${code}` });
-    if (count === 0) {
-      exists = false;
-    }
-  }
-  return `CMP-${code}`;
+  const today = new Date();
+  const yyyy = today.getFullYear();
+  const mm = String(today.getMonth() + 1).padStart(2, '0');
+  const dd = String(today.getDate()).padStart(2, '0');
+  const dateStr = `${yyyy}${mm}${dd}`; // '20260814'
+
+  const counterId = `complaints-${dateStr}`;
+  // Atomically increment the sequence counter for today
+  const counter = await Counter.findOneAndUpdate(
+    { id: counterId },
+    { $inc: { seq: 1 } },
+    { new: true, upsert: true }
+  );
+
+  const seqStr = String(counter.seq).padStart(4, '0');
+  return `MIC-GRV-${dateStr}-${seqStr}`;
 };
 
 // Category assigned departments mapping
@@ -74,6 +77,7 @@ router.post('/', protect, async (req, res) => {
 
     const assignedDepartment = getAssignedDepartment(category);
 
+    // Save to MongoDB FIRST
     const complaint = await Complaint.create({
       complaint_id: complaintId,
       student_email: req.user.email,
@@ -84,146 +88,96 @@ router.post('/', protect, async (req, res) => {
       assigned_department: assignedDepartment,
       bus_number: busNumber || '',
       bus_route: busRoute || '',
-      status: 'Submitted',
+      status: 'Pending', // default status
       priority: 'Medium'
     });
 
     // ----------------------------------------------------
-    // Trigger automated email routing log
+    // Trigger automated email routing via Resend
     // ----------------------------------------------------
-    // Fetch custom contacts to see if dynamic numbers are configured
     const contactsList = await Contact.find({});
     const contactsMap = {};
     contactsList.forEach(c => {
       contactsMap[c.category] = c.phone;
     });
 
-    const disciplineHeadEmail = "discipline.head@mictech.ac.in";
-    let targetRecipient = disciplineHeadEmail;
-    let contactDetailHtml = "";
+    const targetRecipient = process.env.DISCIPLINE_HEAD_EMAIL || 'discipline.head@mictech.ac.in';
+    let managementContact = null;
 
     if (category === "Hostel Issues") {
-      const phone = contactsMap["Hostel Issues"] || "9959593027";
-      contactDetailHtml = `<p style="color: #0F4C81; font-weight: bold; margin-top: 15px;">Hostel Warden Contact: ${phone}</p>`;
+      managementContact = {
+        label: "Hostel Warden / Hostel Management",
+        phone: contactsMap["Hostel Issues"] || "9959593027"
+      };
     } else if (category === "Food Issues") {
-      const phone = contactsMap["Food Issues"] || "9391781748";
-      contactDetailHtml = `<p style="color: #0F4C81; font-weight: bold; margin-top: 15px;">Canteen/Food Management Contact: ${phone}</p>`;
-    } else if (category === "Campus Issues") {
-      const hodEmail = "hod.campus@mictech.ac.in";
-      targetRecipient = `${disciplineHeadEmail}, ${hodEmail}`;
-      const phone = contactsMap["Campus Issues"] || "N/A";
-      contactDetailHtml = `<p style="color: #1D70B8; font-weight: bold; margin-top: 15px;">Campus Facilities Support Contact: ${phone} (Forwarded to Campus HOD)</p>`;
-    } else if (category === "Complaint Against Faculty") {
-      targetRecipient = "discipline.committee@mictech.ac.in";
-      contactDetailHtml = `<p style="color: #DC2626; font-weight: bold; margin-top: 15px;">Severity: Confidential - Directed straight to Discipline Committee review.</p>`;
-    } else if (category === "Complaint Against Student") {
-      targetRecipient = "discipline.committee@mictech.ac.in";
-      contactDetailHtml = `<p style="color: #1E293B; font-weight: bold; margin-top: 15px;">Forwarded to Student Affairs / Discipline Committee.</p>`;
+      managementContact = {
+        label: "Canteen / Cafeteria Management",
+        phone: contactsMap["Food Issues"] || "9391781748"
+      };
     } else if (category === "Bus Issues") {
-      targetRecipient = "bus.management@mictech.ac.in";
-      const phone = contactsMap["Bus Issues"] || "7330820239";
-      contactDetailHtml = `<p style="color: #0F4C81; font-weight: bold; margin-top: 15px;">Bus Management Contact: ${phone}</p>`;
-    } else {
-      contactDetailHtml = `<p style="color: #1E293B; font-weight: bold; margin-top: 15px;">Forwarded to relevant college administrator.</p>`;
+      managementContact = {
+        label: "Bus Management",
+        phone: contactsMap["Bus Issues"] || "7330820239"
+      };
+    } else if (category === "Campus Issues") {
+      managementContact = {
+        label: "Respective Branch HOD",
+        phone: contactsMap["Campus Issues"] || "N/A"
+      };
     }
 
-    const emailSubject = `[URGENT GRIEVANCE] - ID: ${complaintId} | Category: ${category}`;
-    
-    let dynamicRows = `
-      <tr style="background-color: #F8FAFC;">
-        <th style="padding: 10px; border: 1px solid #E2E8F0; color: #0F4C81; width: 35%;">Complaint ID</th>
-        <td style="padding: 10px; border: 1px solid #E2E8F0; font-weight: bold; color: #1E293B;">${complaintId}</td>
-      </tr>
-      <tr>
-        <th style="padding: 10px; border: 1px solid #E2E8F0; color: #0F4C81;">Category</th>
-        <td style="padding: 10px; border: 1px solid #E2E8F0; color: #1E293B;">${category}</td>
-      </tr>
-      <tr style="background-color: #F8FAFC;">
-        <th style="padding: 10px; border: 1px solid #E2E8F0; color: #0F4C81;">Complaint Type</th>
-        <td style="padding: 10px; border: 1px solid #E2E8F0; color: #1E293B;">${complaintType}</td>
-      </tr>
-      <tr>
-        <th style="padding: 10px; border: 1px solid #E2E8F0; color: #0F4C81;">Submitted Date</th>
-        <td style="padding: 10px; border: 1px solid #E2E8F0; color: #1E293B;">${new Date().toLocaleString()}</td>
-      </tr>
-      <tr style="background-color: #F8FAFC;">
-        <th style="padding: 10px; border: 1px solid #E2E8F0; color: #0F4C81;">Student College Email</th>
-        <td style="padding: 10px; border: 1px solid #E2E8F0; color: #1E293B; font-weight: bold;">${req.user.email}</td>
-      </tr>
-    `;
+    // Explicitly sanitizing payload to guarantee NO student identity properties are passed to email builder
+    const emailSanitizedComplaint = {
+      id: complaintId,
+      category,
+      complaintType,
+      description,
+      createdAt: complaint.createdAt,
+      status: complaint.status,
+      busNumber: category === "Bus Issues" ? (busNumber || '') : undefined,
+      busRoute: category === "Bus Issues" ? (busRoute || '') : undefined
+    };
 
-    if (category === "Bus Issues") {
-      const busPhone = contactsMap["Bus Issues"] || "7330820239";
-      dynamicRows += `
-        <tr>
-          <th style="padding: 10px; border: 1px solid #E2E8F0; color: #0F4C81; background-color: #FFFDF5;">Bus Number</th>
-          <td style="padding: 10px; border: 1px solid #E2E8F0; color: #1E293B; font-weight: bold; background-color: #FFFDF5;">${busNumber || 'N/A'}</td>
-        </tr>
-        <tr style="background-color: #FFFDF5;">
-          <th style="padding: 10px; border: 1px solid #E2E8F0; color: #0F4C81;">Bus Route/Area</th>
-          <td style="padding: 10px; border: 1px solid #E2E8F0; color: #1E293B;">${busRoute || 'N/A'}</td>
-        </tr>
-        <tr>
-          <th style="padding: 10px; border: 1px solid #E2E8F0; color: #0F4C81;">Bus Mgmt Contact</th>
-          <td style="padding: 10px; border: 1px solid #E2E8F0; color: #1E293B; font-weight: bold;">${busPhone}</td>
-        </tr>
-      `;
+    let emailStatus = 'Sent';
+    let emailFailureReason = '';
+
+    try {
+      await sendGrievanceEmail({
+        complaint: emailSanitizedComplaint,
+        recipient: targetRecipient,
+        managementContact
+      });
+    } catch (emailError) {
+      console.error('[Resend Email Dispatch Error]', emailError);
+      emailStatus = 'Failed';
+      emailFailureReason = emailError.message || 'Resend transmission failed';
     }
 
-    const fullAttachmentUrl = attachmentUrl ? `${req.protocol}://${req.get('host')}${attachmentUrl}` : '';
-
-    const emailBody = `
-      <div style="font-family: 'Inter', sans-serif; max-width: 600px; margin: 0 auto; padding: 25px; border: 1px solid #E2E8F0; border-radius: 12px; background-color: #FFFFFF; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);">
-        <div style="border-bottom: 2px solid #0F4C81; padding-bottom: 15px; margin-bottom: 20px; text-align: center;">
-          <h2 style="color: #0F4C81; margin: 0; font-size: 22px;">DVR & Dr. HS MIC College of Technology</h2>
-          <p style="color: #64748B; margin: 5px 0 0 0; font-size: 14px;">Official Student Grievance Notification</p>
-        </div>
-        <p style="font-size: 16px; color: #1E293B; line-height: 1.5;">Dear Authority,</p>
-        <p style="font-size: 14px; color: #475569; line-height: 1.6;">A new student grievance has been securely submitted on the portal. Under college guidelines, this report requires timely assessment and resolution.</p>
-        
-        <table style="width: 100%; border-collapse: collapse; margin: 20px 0; font-size: 14px; text-align: left;">
-          ${dynamicRows}
-        </table>
-
-        <div style="background-color: #F8FAFC; border-left: 4px solid #0F4C81; padding: 15px; margin: 20px 0; border-radius: 0 8px 8px 0;">
-          <h4 style="margin: 0 0 10px 0; color: #0F4C81; font-size: 14px;">Description:</h4>
-          <p style="margin: 0; color: #334155; line-height: 1.6; font-size: 13px;">${description}</p>
-        </div>
-
-        ${attachmentUrl ? `
-        <div style="margin: 15px 0; padding: 10px; border: 1px dashed #CBD5E1; border-radius: 8px; font-size: 13px;">
-          <span style="color: #64748B;">Attachment Uploaded:</span> 
-          <a href="${fullAttachmentUrl}" target="_blank" style="color: #1D70B8; text-decoration: underline; font-weight: 500;">
-            ${attachmentName || 'View Attachment'}
-          </a>
-        </div>` : ''}
-
-        ${contactDetailHtml}
-
-        <hr style="border: 0; border-top: 1px solid #E2E8F0; margin: 25px 0;"/>
-        <p style="font-size: 12px; color: #94A3B8; text-align: center; line-height: 1.4; margin: 0;">
-          This email was auto-generated by the MIC Student Grievance Portal. Do not reply to this email directly.
-          <br/>
-          © DVR & Dr. HS MIC College of Technology - Grievance Committee.
-        </p>
-      </div>
-    `;
-
-    // Log the routed email
+    // Save Email Log (keeping student email hidden from these public outbox logs)
     await EmailLog.create({
       recipient: targetRecipient,
-      subject: emailSubject,
-      body: emailBody,
-      complaintId
+      subject: `[CONFIDENTIAL GRIEVANCE] - ID: ${complaintId} | Category: ${category}`,
+      body: `Confidential grievance notification logged for ID: ${complaintId}`, // Avoid exposing full body or student info in logs
+      complaintId,
+      category,
+      status: emailStatus,
+      failureReason: emailFailureReason
     });
 
+    if (emailStatus === 'Failed') {
+      return res.status(201).json({
+        message: 'Your complaint was recorded successfully. Please try again later if you do not see an updated status.',
+        complaint
+      });
+    }
+
     res.status(201).json({
-      message: 'Complaint submitted successfully',
+      message: 'Your complaint has been submitted successfully.',
       complaint
     });
   } catch (error) {
     console.error('[Grievance Submission Error]', error);
-    res.status(500).json({ message: error.message });
+    res.status(500).json({ message: 'Unable to submit your complaint right now. Please try again.' });
   }
 });
 
@@ -234,21 +188,21 @@ router.get('/', protect, async (req, res) => {
   try {
     let complaints;
     if (req.user.role === 'admin') {
-      complaints = await Complaint.find({}).sort({ createdAt: -1 });
+      complaints = await Complaint.find({}).select('-student_email').sort({ createdAt: -1 });
     } else {
       complaints = await Complaint.find({ student_email: req.user.email }).sort({ createdAt: -1 });
     }
     res.json(complaints);
   } catch (error) {
     console.error('[Get Complaints Error]', error);
-    res.status(500).json({ message: error.message });
+    res.status(500).json({ message: 'Unable to load complaints.' });
   }
 });
 
-// @desc    Public endpoint to track single complaint
+// @desc    Authenticated endpoint to track single complaint
 // @route   GET /api/complaints/track/:id
-// @access  Public
-router.get('/track/:id', async (req, res) => {
+// @access  Private (Only owner student or Admin can access)
+router.get('/track/:id', protect, async (req, res) => {
   const trackerId = req.params.id.trim().toUpperCase();
 
   try {
@@ -256,10 +210,34 @@ router.get('/track/:id', async (req, res) => {
     if (!complaint) {
       return res.status(404).json({ message: 'Complaint ID not found. Please verify the ID.' });
     }
-    res.json(complaint);
+
+    // Verify ownership
+    if (req.user.role !== 'admin' && complaint.student_email !== req.user.email) {
+      return res.status(403).json({ message: 'Unauthorized. You do not own this complaint.' });
+    }
+
+    // Return sanitized payload
+    const sanitizedComplaint = {
+      id: complaint.complaint_id,
+      complaint_id: complaint.complaint_id,
+      category: complaint.category,
+      complaint_type: complaint.complaint_type,
+      status: complaint.status,
+      priority: complaint.priority,
+      description: complaint.description,
+      assigned_department: complaint.assigned_department,
+      createdAt: complaint.createdAt,
+      statusHistory: complaint.statusHistory,
+      resolution_notes: complaint.resolution_notes,
+      bus_number: complaint.bus_number,
+      bus_route: complaint.bus_route,
+      attachment_url: complaint.attachment_url
+    };
+
+    res.json(sanitizedComplaint);
   } catch (error) {
     console.error('[Track Complaint Error]', error);
-    res.status(500).json({ message: error.message });
+    res.status(500).json({ message: 'Unable to track complaint.' });
   }
 });
 
@@ -275,17 +253,34 @@ router.put('/:id', adminProtect, async (req, res) => {
       return res.status(404).json({ message: 'Complaint not found.' });
     }
 
-    if (status !== undefined) complaint.status = status;
+    const previousStatus = complaint.status;
+    const changedBy = req.user.email || 'admin@mictech.ac.in';
+
+    // Track status history if status changes
+    if (status !== undefined && status !== previousStatus) {
+      complaint.status = status;
+      complaint.statusHistory.push({
+        previousStatus,
+        newStatus: status,
+        changedBy,
+        changedAt: new Date()
+      });
+    }
+
     if (priority !== undefined) complaint.priority = priority;
     if (resolutionNotes !== undefined) complaint.resolution_notes = resolutionNotes;
     
     complaint.updatedAt = new Date();
     await complaint.save();
 
-    res.json({ message: 'Complaint updated successfully', complaint });
+    // Sanitize response to ensure student identity remains confidential
+    const complaintResponse = complaint.toObject();
+    delete complaintResponse.student_email;
+
+    res.json({ message: 'Complaint updated successfully', complaint: complaintResponse });
   } catch (error) {
     console.error('[Update Complaint Error]', error);
-    res.status(500).json({ message: error.message });
+    res.status(500).json({ message: 'Unable to update complaint.' });
   }
 });
 

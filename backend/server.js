@@ -3,25 +3,63 @@ import cors from 'cors';
 import path from 'path';
 import dotenv from 'dotenv';
 import mongoose from 'mongoose';
+import helmet from 'helmet';
+import rateLimit from 'express-rate-limit';
+import mongoSanitize from 'express-mongo-sanitize';
 import connectDB from './config/db.js';
 import fs from 'fs';
+
+import { verifyTransporter } from './utils/mailer.js';
 
 // Route Imports
 import authRoutes from './routes/auth.js';
 import complaintRoutes from './routes/complaints.js';
 import logRoutes from './routes/logs.js';
 import contactRoutes from './routes/contacts.js';
+import categoryRoutes from './routes/categories.js';
+import complaintTypeRoutes from './routes/complaintTypes.js';
+import adminRoutes from './routes/admin.js';
 
 // Load env vars
 dotenv.config();
 
-// Connect to MongoDB
+// Connect to MongoDB & Run Seeding
 connectDB();
 
 const app = express();
 
-// Middlewares
-app.use(cors());
+// Security Headers (Disable CSP to allow flexible local media/script loading safely)
+app.use(helmet({
+  contentSecurityPolicy: false
+}));
+
+// Input sanitization against MongoDB Query Injection
+app.use(mongoSanitize());
+
+// CORS configuration (Reject production wildcard)
+const allowedOrigins = [
+  'http://localhost:5173',
+  'http://localhost:3000',
+  'http://127.0.0.1:5173',
+  'http://127.0.0.1:3000',
+  process.env.FRONTEND_URL
+].filter(Boolean);
+
+app.use(cors({
+  origin: function (origin, callback) {
+    // Allow non-browser requests
+    if (!origin) return callback(null, true);
+    
+    const isLocal = origin.startsWith('http://localhost:') || origin.startsWith('http://127.0.0.1:');
+    if (isLocal || allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    } else {
+      return callback(new Error('Not allowed by CORS due to security configuration'));
+    }
+  },
+  credentials: true
+}));
+
 // Set high JSON body limit to support Base64 file attachments safely
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ limit: '10mb', extended: true }));
@@ -81,17 +119,29 @@ app.get('/api/video', (req, res) => {
 app.use('/api', (req, res, next) => {
   if (mongoose.connection.readyState !== 1) {
     return res.status(503).json({
-      message: 'Database is currently offline. Please ensure MongoDB is started locally (port 27017) or update the MONGODB_URI connection string inside backend/.env.'
+      message: 'Database connection is currently offline. Please try again in a few moments.'
     });
   }
   next();
 });
 
+// Rate limiting for authentication routes
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 mins
+  max: 100, // limit each IP to 100 requests per window
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { message: 'Too many authentication attempts. Please try again after 15 minutes.' }
+});
+
 // Mount API Routes
-app.use('/api/auth', authRoutes);
+app.use('/api/auth', authLimiter, authRoutes);
 app.use('/api/complaints', complaintRoutes);
 app.use('/api/logs', logRoutes);
 app.use('/api/contacts', contactRoutes);
+app.use('/api/categories', categoryRoutes);
+app.use('/api/complaint-types', complaintTypeRoutes);
+app.use('/api/admin', adminRoutes);
 
 // Base route test
 app.get('/', (req, res) => {
@@ -111,4 +161,5 @@ const PORT = process.env.PORT || 5000;
 
 app.listen(PORT, () => {
   console.log(`[Express Server Running] Server active on port: ${PORT}`);
+  verifyTransporter();
 });

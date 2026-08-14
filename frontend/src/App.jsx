@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Api } from './api.js?v=1.3';
+import { Api } from './api.js';
 import { Icon } from './components/Icon.jsx';
-import { DEFAULT_CATEGORIES, DEFAULT_COMPLAINT_TYPES, DEFAULT_CONTACTS } from './js/state.js?v=1.3';
+import { DEFAULT_CATEGORIES, DEFAULT_COMPLAINT_TYPES, DEFAULT_CONTACTS } from './js/state.js';
 import BackgroundVideo from './components/BackgroundVideo.jsx';
 
 export default function App() {
@@ -50,12 +50,31 @@ export default function App() {
   const [trackLoading, setTrackLoading] = useState(false);
 
   // Admin Dashboard State
-  const [adminTab, setAdminTab] = useState('dashboard'); // dashboard, complaints, contacts, email-logs
+  const [adminTab, setAdminTab] = useState('dashboard'); // dashboard, complaints, categories, types, contacts, settings
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [allComplaints, setAllComplaints] = useState([]);
   const [adminLoading, setAdminLoading] = useState(false);
-  const [emailLogs, setEmailLogs] = useState([]);
   const [contactsMap, setContactsMap] = useState({});
+
+  // Dynamic categories & complaint types from DB
+  const [categories, setCategories] = useState([]);
+  const [complaintTypes, setComplaintTypes] = useState([]);
+  const [adminDashboardData, setAdminDashboardData] = useState(null);
+  const [categoriesLoading, setCategoriesLoading] = useState(false);
+  const [categoriesError, setCategoriesError] = useState('');
+
+  // Tab control states for CRUD
+  const [activeCategoryTab, setActiveCategoryTab] = useState('Hostel Issues');
+  const [newCategoryName, setNewCategoryName] = useState('');
+  const [newTypeName, setNewTypeName] = useState('');
+  const [categorySubmitLoading, setCategorySubmitLoading] = useState(false);
+  const [typeSubmitLoading, setTypeSubmitLoading] = useState(false);
+
+  // Admin password change states
+  const [adminCurrentPassword, setAdminCurrentPassword] = useState('');
+  const [adminNewPassword, setAdminNewPassword] = useState('');
+  const [adminConfirmNewPassword, setAdminConfirmNewPassword] = useState('');
+  const [adminPasswordLoading, setAdminPasswordLoading] = useState(false);
 
   // Admin Filters
   const [adminSearch, setAdminSearch] = useState('');
@@ -73,9 +92,6 @@ export default function App() {
   // Helpline Edit Contacts
   const [editingContacts, setEditingContacts] = useState({});
 
-  // Email Log Preview Selection
-  const [selectedEmailLog, setSelectedEmailLog] = useState(null);
-
   // Auto-refresh timer for Admin dashboard (realtime polling fallback)
   useEffect(() => {
     let interval;
@@ -87,20 +103,96 @@ export default function App() {
     return () => clearInterval(interval);
   }, [currentUser, view]);
 
-  // Load session on startup
-  useEffect(() => {
-    const user = Api.getCurrentUser();
-    if (user) {
-      setCurrentUser(user);
-      if (user.role === 'admin') {
-        setView('admin');
-        loadAdminData();
-      } else {
-        setView('student-dashboard');
-        loadStudentComplaints(user.email);
+  // Load dynamic config and session on startup
+  const fetchCategoriesAndTypes = async () => {
+    setCategoriesLoading(true);
+    setCategoriesError('');
+    try {
+      const [cats, types] = await Promise.all([
+        Api.getCategories(),
+        Api.getComplaintTypes()
+      ]);
+      setCategories(cats);
+      setComplaintTypes(types);
+      
+      // Auto-select first active category as default tab
+      const activeCats = cats.filter(c => c.isActive);
+      if (activeCats.length > 0) {
+        setActiveCategoryTab(activeCats[0].name);
       }
+    } catch (err) {
+      setCategoriesError(err.message || 'Unable to load categories');
+      showToast('Config Load Error', err.message, 'error');
+    } finally {
+      setCategoriesLoading(false);
     }
+  };
+
+  useEffect(() => {
+    const loadSession = async () => {
+      await fetchCategoriesAndTypes();
+
+      // 2. Load cached user session
+      const user = Api.getCurrentUser();
+      if (user) {
+        setCurrentUser(user);
+        if (user.role === 'admin') {
+          setView('admin');
+          loadAdminData();
+        } else {
+          setView('student-dashboard');
+          loadStudentComplaints(user.email);
+        }
+      }
+    };
+
+    loadSession();
   }, []);
+
+  const getStatusStep = (status) => {
+    switch (status) {
+      case 'Pending':
+        return 1;
+      case 'Under Review':
+        return 2;
+      case 'In Progress':
+        return 3;
+      case 'Resolved':
+        return 4;
+      case 'Closed':
+      case 'Rejected':
+        return 5;
+      default:
+        return 1;
+    }
+  };
+
+  // Fetch tracked complaint dynamically when viewing the tracking page to ensure latest status is shown
+  useEffect(() => {
+    const fetchTrackedGrievance = async () => {
+      if (view === 'track' && trackSearchId.trim()) {
+        setTrackLoading(true);
+        setTrackError('');
+        try {
+          const complaint = await Api.trackGrievance(trackSearchId.trim());
+          setTrackedComplaint(complaint);
+        } catch (err) {
+          setTrackError(err.message);
+          showToast('Sync Error', err.message, 'error');
+        } finally {
+          setTrackLoading(false);
+        }
+      }
+    };
+    fetchTrackedGrievance();
+  }, [view, trackSearchId]);
+
+  // Fetch categories dynamically when viewing the complaint submission form to ensure it loads even if startup failed
+  useEffect(() => {
+    if (view === 'raise-complaint' && categories.length === 0) {
+      fetchCategoriesAndTypes();
+    }
+  }, [view]);
 
   // Global Toast Dispatcher
   const showToast = (title, message, type = 'success') => {
@@ -130,20 +222,19 @@ export default function App() {
   const loadAdminData = async (silent = false) => {
     if (!silent) setAdminLoading(true);
     try {
-      const [list, logs, contacts] = await Promise.all([
+      const [list, contacts, stats, cats, types] = await Promise.all([
         Api.syncComplaints(),
-        Api.syncEmailLogs(),
-        Api.getContacts()
+        Api.getContacts(),
+        Api.getAdminDashboard(),
+        Api.getCategories(),
+        Api.getComplaintTypes()
       ]);
       setAllComplaints(list);
-      setEmailLogs(logs);
       setContactsMap(contacts);
       setEditingContacts(contacts);
-      
-      // Auto-select first email log if none selected
-      if (logs.length > 0 && !selectedEmailLog) {
-        setSelectedEmailLog(logs[0]);
-      }
+      setAdminDashboardData(stats);
+      setCategories(cats);
+      setComplaintTypes(types);
     } catch (err) {
       if (!silent) showToast('Dashboard Sync Error', err.message, 'error');
     } finally {
@@ -334,14 +425,17 @@ export default function App() {
   const roleLabel = (role) => (role === 'admin' ? 'Administrator' : 'Student');
 
   // ----------------------------------------------------
-  // Dropdown Helpers
+  // Dropdown Helpers (Dynamic Config)
   // ----------------------------------------------------
   const handleCategoryChange = (val) => {
     setRaiseCategory(val);
     setRaiseType('');
   };
 
-  const subIssueTypes = DEFAULT_COMPLAINT_TYPES[raiseCategory] || [];
+  // Map subIssueTypes dynamically from DB
+  const subIssueTypes = complaintTypes
+    .filter((t) => t.category === raiseCategory && t.isActive)
+    .map((t) => t.name);
 
   // File picker handler
   const handleFileChange = (e) => {
@@ -356,16 +450,123 @@ export default function App() {
   };
 
   // ----------------------------------------------------
+  // Admin Configuration CRUD & Passwords
+  // ----------------------------------------------------
+  const handleAddCategory = async (e) => {
+    e.preventDefault();
+    if (!newCategoryName.trim()) return;
+    setCategorySubmitLoading(true);
+    try {
+      await Api.createCategory(newCategoryName);
+      showToast('Category Added', `Category "${newCategoryName}" created.`, 'success');
+      setNewCategoryName('');
+      await loadAdminData(true);
+    } catch (err) {
+      showToast('Failed to Add', err.message, 'error');
+    } finally {
+      setCategorySubmitLoading(false);
+    }
+  };
+
+  const handleToggleCategory = async (id, currentActive) => {
+    try {
+      await Api.updateCategory(id, { isActive: !currentActive });
+      showToast('Category Updated', 'Status changed successfully.', 'success');
+      await loadAdminData(true);
+    } catch (err) {
+      showToast('Update Failed', err.message, 'error');
+    }
+  };
+
+  const handleDeleteCategory = async (id, name) => {
+    if (!window.confirm(`Warning: Deleting category "${name}" will cascade delete associated complaint types and helper contacts. Continue?`)) {
+      return;
+    }
+    try {
+      await Api.deleteCategory(id);
+      showToast('Category Removed', `Category "${name}" removed.`, 'success');
+      await loadAdminData(true);
+      // Auto-adjust active category tab if deleted
+      const updatedCats = await Api.getCategories();
+      const activeCats = updatedCats.filter(c => c.isActive);
+      if (activeCategoryTab === name && activeCats.length > 0) {
+        setActiveCategoryTab(activeCats[0].name);
+      }
+    } catch (err) {
+      showToast('Deletion Failed', err.message, 'error');
+    }
+  };
+
+  const handleAddComplaintType = async (e) => {
+    e.preventDefault();
+    if (!newTypeName.trim() || !activeCategoryTab) return;
+    setTypeSubmitLoading(true);
+    try {
+      await Api.createComplaintType(activeCategoryTab, newTypeName);
+      showToast('Issue Type Added', `Issue type "${newTypeName}" added.`, 'success');
+      setNewTypeName('');
+      await loadAdminData(true);
+    } catch (err) {
+      showToast('Failed to Add', err.message, 'error');
+    } finally {
+      setTypeSubmitLoading(false);
+    }
+  };
+
+  const handleToggleComplaintType = async (id, currentActive) => {
+    try {
+      await Api.updateComplaintType(id, { isActive: !currentActive });
+      showToast('Type Updated', 'Status changed successfully.', 'success');
+      await loadAdminData(true);
+    } catch (err) {
+      showToast('Update Failed', err.message, 'error');
+    }
+  };
+
+  const handleDeleteComplaintType = async (id, name) => {
+    if (!window.confirm(`Remove issue type "${name}" from category "${activeCategoryTab}"?`)) {
+      return;
+    }
+    try {
+      await Api.deleteComplaintType(id);
+      showToast('Type Removed', 'Issue type removed successfully.', 'success');
+      await loadAdminData(true);
+    } catch (err) {
+      showToast('Deletion Failed', err.message, 'error');
+    }
+  };
+
+  const handleAdminChangePassword = async (e) => {
+    e.preventDefault();
+    if (adminNewPassword !== adminConfirmNewPassword) {
+      showToast('Match Error', 'New passwords do not match.', 'error');
+      return;
+    }
+    setAdminPasswordLoading(true);
+    try {
+      await Api.changeAdminPassword(adminCurrentPassword, adminNewPassword);
+      showToast('Password Changed', 'Administrator credentials updated successfully.', 'success');
+      setAdminCurrentPassword('');
+      setAdminNewPassword('');
+      setAdminConfirmNewPassword('');
+    } catch (err) {
+      showToast('Failed to Update', err.message, 'error');
+    } finally {
+      setAdminPasswordLoading(false);
+    }
+  };
+
+  // ----------------------------------------------------
   // Computed Statistics (Admin Panel Dashboard)
   // ----------------------------------------------------
-  const totalCount = allComplaints.length;
-  const pendingCount = allComplaints.filter((c) => ['Submitted', 'Under Review', 'Assigned'].includes(c.status)).length;
-  const resolvedCount = allComplaints.filter((c) => ['Resolved', 'Closed'].includes(c.status)).length;
-  const todayCount = allComplaints.filter((c) => new Date(c.createdAt).toDateString() === new Date().toDateString()).length;
+  const totalCount = adminDashboardData?.totalComplaints ?? 0;
+  const pendingCount = adminDashboardData?.pendingComplaints ?? 0;
+  const resolvedCount = adminDashboardData?.resolvedComplaints ?? 0;
+  const todayCount = adminDashboardData?.submittedToday ?? 0;
 
   const categoryCounts = {};
-  DEFAULT_CATEGORIES.forEach((cat) => {
-    categoryCounts[cat] = allComplaints.filter((c) => c.category === cat).length;
+  categories.forEach((cat) => {
+    categoryCounts[cat.name] = adminDashboardData?.categoryDistribution[cat.name] || 0;
   });
 
   const maxCategoryCount = Math.max(...Object.values(categoryCounts), 1);
@@ -376,7 +577,6 @@ export default function App() {
   const filteredComplaints = allComplaints.filter((c) => {
     const matchesSearch =
       c.id.toLowerCase().includes(adminSearch.toLowerCase()) ||
-      c.studentEmail.toLowerCase().includes(adminSearch.toLowerCase()) ||
       c.description.toLowerCase().includes(adminSearch.toLowerCase());
 
     const matchesCategory = adminFilterCategory === 'all' || c.category === adminFilterCategory;
@@ -875,12 +1075,27 @@ export default function App() {
                 {/* Category Dropdown */}
                 <div className="form-group">
                   <label className="form-label" htmlFor="grv-category">Select Complaint Category</label>
-                  <select className="form-control" id="grv-category" value={raiseCategory} onChange={(e) => handleCategoryChange(e.target.value)} required>
-                    <option value="" disabled>Choose a category...</option>
-                    {DEFAULT_CATEGORIES.map((cat) => (
-                      <option key={cat} value={cat}>{cat}</option>
-                    ))}
-                  </select>
+                  {categoriesLoading ? (
+                    <select className="form-control" disabled>
+                      <option>Loading categories from database...</option>
+                    </select>
+                  ) : categoriesError ? (
+                    <div className="flex flex-col gap-2">
+                      <select className="form-control border-rose-300" disabled>
+                        <option>Failed to load categories</option>
+                      </select>
+                      <button type="button" className="btn btn-secondary btn-sm text-xs self-start" onClick={fetchCategoriesAndTypes}>
+                        Retry Loading Categories
+                      </button>
+                    </div>
+                  ) : (
+                    <select className="form-control" id="grv-category" value={raiseCategory} onChange={(e) => handleCategoryChange(e.target.value)} required>
+                      <option value="" disabled>Choose a category...</option>
+                      {categories.filter(c => c.isActive).map((cat) => (
+                        <option key={cat._id} value={cat.name}>{cat.name}</option>
+                      ))}
+                    </select>
+                  )}
                 </div>
 
                 {/* Subcategory dropdown (cascading) */}
@@ -1045,50 +1260,52 @@ export default function App() {
                   <div className="timeline-progress-bar">
                     <div className="timeline-progress-fill" style={{
                       width: 
-                        trackedComplaint.status === 'Submitted' ? '0%' :
-                        trackedComplaint.status === 'Under Review' ? '25%' :
-                        trackedComplaint.status === 'Assigned' ? '50%' :
-                        trackedComplaint.status === 'Resolved' ? '75%' : '100%'
+                        getStatusStep(trackedComplaint.status) === 1 ? '0%' :
+                        getStatusStep(trackedComplaint.status) === 2 ? '25%' :
+                        getStatusStep(trackedComplaint.status) === 3 ? '50%' :
+                        getStatusStep(trackedComplaint.status) === 4 ? '75%' : '100%'
                     }}></div>
                   </div>
 
                   <div className="timeline-steps">
                     {/* Step 1 */}
-                    <div className={`timeline-step ${['Submitted', 'Under Review', 'Assigned', 'Resolved', 'Closed'].includes(trackedComplaint.status) ? 'active' : ''} ${['Under Review', 'Assigned', 'Resolved', 'Closed'].includes(trackedComplaint.status) ? 'completed' : ''}`}>
+                    <div className={`timeline-step ${getStatusStep(trackedComplaint.status) >= 1 ? 'active' : ''} ${getStatusStep(trackedComplaint.status) > 1 ? 'completed' : ''}`}>
                       <div className="timeline-step-node">
-                        {['Under Review', 'Assigned', 'Resolved', 'Closed'].includes(trackedComplaint.status) ? '✓' : '1'}
+                        {getStatusStep(trackedComplaint.status) > 1 ? '✓' : '1'}
                       </div>
                       <span className="timeline-step-label">Submitted</span>
                     </div>
 
                     {/* Step 2 */}
-                    <div className={`timeline-step ${['Under Review', 'Assigned', 'Resolved', 'Closed'].includes(trackedComplaint.status) ? 'active' : ''} ${['Assigned', 'Resolved', 'Closed'].includes(trackedComplaint.status) ? 'completed' : ''}`}>
+                    <div className={`timeline-step ${getStatusStep(trackedComplaint.status) >= 2 ? 'active' : ''} ${getStatusStep(trackedComplaint.status) > 2 ? 'completed' : ''}`}>
                       <div className="timeline-step-node">
-                        {['Assigned', 'Resolved', 'Closed'].includes(trackedComplaint.status) ? '✓' : '2'}
+                        {getStatusStep(trackedComplaint.status) > 2 ? '✓' : '2'}
                       </div>
                       <span className="timeline-step-label">Under Review</span>
                     </div>
 
                     {/* Step 3 */}
-                    <div className={`timeline-step ${['Assigned', 'Resolved', 'Closed'].includes(trackedComplaint.status) ? 'active' : ''} ${['Resolved', 'Closed'].includes(trackedComplaint.status) ? 'completed' : ''}`}>
+                    <div className={`timeline-step ${getStatusStep(trackedComplaint.status) >= 3 ? 'active' : ''} ${getStatusStep(trackedComplaint.status) > 3 ? 'completed' : ''}`}>
                       <div className="timeline-step-node">
-                        {['Resolved', 'Closed'].includes(trackedComplaint.status) ? '✓' : '3'}
+                        {getStatusStep(trackedComplaint.status) > 3 ? '✓' : '3'}
                       </div>
-                      <span className="timeline-step-label">Assigned</span>
+                      <span className="timeline-step-label">In Progress</span>
                     </div>
 
                     {/* Step 4 */}
-                    <div className={`timeline-step ${['Resolved', 'Closed'].includes(trackedComplaint.status) ? 'active' : ''} ${trackedComplaint.status === 'Closed' ? 'completed' : ''}`}>
+                    <div className={`timeline-step ${getStatusStep(trackedComplaint.status) >= 4 ? 'active' : ''} ${getStatusStep(trackedComplaint.status) > 4 ? 'completed' : ''}`}>
                       <div className="timeline-step-node">
-                        {trackedComplaint.status === 'Closed' ? '✓' : '4'}
+                        {getStatusStep(trackedComplaint.status) > 4 ? '✓' : '4'}
                       </div>
                       <span className="timeline-step-label">Resolved</span>
                     </div>
 
                     {/* Step 5 */}
-                    <div className={`timeline-step ${trackedComplaint.status === 'Closed' ? 'active' : ''}`}>
+                    <div className={`timeline-step ${getStatusStep(trackedComplaint.status) >= 5 ? 'active' : ''}`}>
                       <div className="timeline-step-node">5</div>
-                      <span className="timeline-step-label">Closed</span>
+                      <span className="timeline-step-label">
+                        {trackedComplaint.status === 'Rejected' ? 'Rejected' : 'Closed'}
+                      </span>
                     </div>
                   </div>
                 </div>
@@ -1155,11 +1372,17 @@ export default function App() {
               <button className={`admin-menu-item ${adminTab === 'complaints' ? 'active' : ''}`} onClick={() => setAdminTab('complaints')}>
                 <Icon name="list" size={18} /> <span>Active Complaints</span>
               </button>
+              <button className={`admin-menu-item ${adminTab === 'categories' ? 'active' : ''}`} onClick={() => setAdminTab('categories')}>
+                <Icon name="category" size={18} /> <span>Categories</span>
+              </button>
+              <button className={`admin-menu-item ${adminTab === 'types' ? 'active' : ''}`} onClick={() => setAdminTab('types')}>
+                <Icon name="plus" size={18} /> <span>Complaint Types</span>
+              </button>
               <button className={`admin-menu-item ${adminTab === 'contacts' ? 'active' : ''}`} onClick={() => setAdminTab('contacts')}>
                 <Icon name="phone" size={18} /> <span>Helpline Numbers</span>
               </button>
-              <button className={`admin-menu-item ${adminTab === 'email-logs' ? 'active' : ''}`} onClick={() => setAdminTab('email-logs')}>
-                <Icon name="mail" size={18} /> <span>Email Outbox Logs</span>
+              <button className={`admin-menu-item ${adminTab === 'settings' ? 'active' : ''}`} onClick={() => setAdminTab('settings')}>
+                <Icon name="settings" size={18} /> <span>Change Password</span>
               </button>
               <hr style={{ border: 0, borderTop: '1px solid rgba(255, 255, 255, 0.1)', margin: '15px 0' }} />
               <button className="admin-menu-item logout-item" onClick={handleLogout}>
@@ -1177,8 +1400,10 @@ export default function App() {
                   <span style={{ display: 'inline-flex', width: 8, height: 8, borderRadius: '50%', backgroundColor: 'var(--success)' }}></span>
                   {adminTab === 'dashboard' && 'Analytics Overview'}
                   {adminTab === 'complaints' && 'Grievance Directory'}
+                  {adminTab === 'categories' && 'Manage Categories'}
+                  {adminTab === 'types' && 'Manage Complaint Types'}
                   {adminTab === 'contacts' && 'Routing Helplines'}
-                  {adminTab === 'email-logs' && 'Dispatched Outbox Logs'}
+                  {adminTab === 'settings' && 'Admin Credentials'}
                 </h2>
               </div>
               <div className="flex items-center gap-4">
@@ -1240,12 +1465,12 @@ export default function App() {
                       </div>
                       
                       <div className="bar-chart-container">
-                        {DEFAULT_CATEGORIES.map((cat) => {
-                          const count = categoryCounts[cat] || 0;
+                        {categories.map((cat) => {
+                          const count = categoryCounts[cat.name] || 0;
                           const percent = totalCount > 0 ? (count / maxCategoryCount) * 100 : 0;
                           return (
-                            <div key={cat} className="bar-row">
-                              <span className="bar-label" title={cat}>{cat}</span>
+                            <div key={cat._id} className="bar-row">
+                              <span className="bar-label" title={cat.name}>{cat.name}</span>
                               <div className="bar-track">
                                 <div className="bar-fill" style={{ width: `${percent}%` }}></div>
                               </div>
@@ -1260,10 +1485,10 @@ export default function App() {
                     <div className="chart-card">
                       <h3 className="text-base font-bold text-slate-800 mb-4">Emergency Directory</h3>
                       <ul className="flex flex-col gap-3 text-sm">
-                        {DEFAULT_CATEGORIES.filter(cat => ['Hostel Issues', 'Food Issues', 'Bus Issues'].includes(cat)).map((cat) => (
-                          <li key={cat} className="flex justify-between py-2 border-b border-slate-100">
-                            <span className="font-semibold text-slate-600">{cat}</span>
-                            <span className="text-slate-800 font-bold">{contactsMap[cat] || 'N/A'}</span>
+                        {categories.filter(c => ['Hostel Issues', 'Food Issues', 'Bus Issues'].includes(c.name)).map((cat) => (
+                          <li key={cat.name} className="flex justify-between py-2 border-b border-slate-100">
+                            <span className="font-semibold text-slate-600">{cat.name}</span>
+                            <span className="text-slate-800 font-bold">{contactsMap[cat.name] || 'N/A'}</span>
                           </li>
                         ))}
                       </ul>
@@ -1322,15 +1547,16 @@ export default function App() {
 
                     <select className="form-control py-2 text-sm w-44" value={adminFilterCategory} onChange={(e) => setAdminFilterCategory(e.target.value)}>
                       <option value="all">All Categories</option>
-                      {DEFAULT_CATEGORIES.map(cat => <option key={cat} value={cat}>{cat}</option>)}
+                      {categories.map(cat => <option key={cat._id} value={cat.name}>{cat.name}</option>)}
                     </select>
 
                     <select className="form-control py-2 text-sm w-40" value={adminFilterStatus} onChange={(e) => setAdminFilterStatus(e.target.value)}>
                       <option value="all">All Statuses</option>
-                      <option value="Submitted">Submitted</option>
+                      <option value="Pending">Pending</option>
                       <option value="Under Review">Under Review</option>
-                      <option value="Assigned">Assigned</option>
+                      <option value="In Progress">In Progress</option>
                       <option value="Resolved">Resolved</option>
+                      <option value="Rejected">Rejected</option>
                       <option value="Closed">Closed</option>
                     </select>
 
@@ -1361,7 +1587,6 @@ export default function App() {
                         <thead>
                           <tr>
                             <th>Complaint ID</th>
-                            <th>Student College Email</th>
                             <th>Category</th>
                             <th>Type</th>
                             <th>Status</th>
@@ -1373,7 +1598,6 @@ export default function App() {
                           {filteredComplaints.map((c) => (
                             <tr key={c.id}>
                               <td className="font-semibold">{c.id}</td>
-                              <td className="font-semibold text-xs text-slate-600">{c.studentEmail}</td>
                               <td>{c.category}</td>
                               <td>{c.complaintType}</td>
                               <td><span className={`badge badge-${c.status.toLowerCase().replace(' ', '-')}`}>{c.status}</span></td>
@@ -1415,25 +1639,26 @@ export default function App() {
                         </tr>
                       </thead>
                       <tbody>
-                        {DEFAULT_CATEGORIES.map((cat) => (
-                          <tr key={cat}>
-                            <td className="font-semibold">{cat}</td>
+                        {categories.map((cat) => (
+                          <tr key={cat.name}>
+                            <td className="font-semibold">{cat.name}</td>
                             <td className="text-xs text-slate-500">
-                              {cat === 'Hostel Issues' && 'Hostel Management / Discipline Head'}
-                              {cat === 'Food Issues' && 'Canteen / Food Management'}
-                              {cat === 'Bus Issues' && 'Bus Management'}
-                              {cat === 'Campus Issues' && 'Respective HOD'}
-                              {cat === 'Complaint Against Student' && 'Discipline Committee'}
-                              {cat === 'Complaint Against Faculty' && 'Discipline Committee'}
+                              {cat.name === 'Hostel Issues' && 'Hostel Management / Discipline Head'}
+                              {cat.name === 'Food Issues' && 'Canteen / Food Management'}
+                              {cat.name === 'Bus Issues' && 'Bus Management'}
+                              {cat.name === 'Campus Issues' && 'Respective HOD'}
+                              {cat.name === 'Complaint Against Student' && 'Discipline Committee'}
+                              {cat.name === 'Complaint Against Faculty' && 'Discipline Committee'}
+                              {!['Hostel Issues', 'Food Issues', 'Bus Issues', 'Campus Issues', 'Complaint Against Student', 'Complaint Against Faculty'].includes(cat.name) && 'General Discipline Committee'}
                             </td>
                             <td>
-                              <input type="text" className="form-control py-1 px-3 text-xs w-48 font-bold" value={editingContacts[cat] || ''} onChange={(e) => {
+                              <input type="text" className="form-control py-1 px-3 text-xs w-48 font-bold" value={editingContacts[cat.name] || ''} onChange={(e) => {
                                 const val = e.target.value;
-                                setEditingContacts(prev => ({ ...prev, [cat]: val }));
+                                setEditingContacts(prev => ({ ...prev, [cat.name]: val }));
                               }} />
                             </td>
                             <td>
-                              <button className="btn btn-primary btn-sm" onClick={() => handleUpdateContactSubmit(cat, editingContacts[cat])}>
+                              <button className="btn btn-primary btn-sm" onClick={() => handleUpdateContactSubmit(cat.name, editingContacts[cat.name])}>
                                 Save Changes
                               </button>
                             </td>
@@ -1445,52 +1670,203 @@ export default function App() {
                 </div>
               )}
 
-              {/* Tab Content D: Email logs inbox preview */}
-              {adminTab === 'email-logs' && (
-                <div className="section-card" style={{ padding: 0, overflow: 'hidden' }}>
-                  
-                  {emailLogs.length === 0 ? (
-                    <div className="text-center py-20 text-slate-400 text-sm">No email transmission logs captured yet.</div>
-                  ) : (
-                    <div className="email-log-layout">
-                      
-                      {/* Left list sidebar */}
-                      <div className="email-log-sidebar">
-                        <div className="email-log-sidebar-header">Outbox Dispatches</div>
-                        <div className="email-log-list">
-                          {emailLogs.map((log) => (
-                            <div key={log.id} className={`email-log-item-card ${selectedEmailLog && selectedEmailLog.id === log.id ? 'active' : ''}`} onClick={() => setSelectedEmailLog(log)}>
-                              <h4 className="email-log-item-title">{log.complaintId}</h4>
-                              <p className="email-log-item-meta font-semibold truncate" title={log.recipient}>To: {log.recipient}</p>
-                              <p className="email-log-item-meta" style={{ marginTop: 2 }}>{new Date(log.timestamp).toLocaleTimeString()}</p>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
 
-                      {/* Right preview window */}
-                      <div className="email-log-viewer">
-                        <div className="email-log-viewer-header">
-                          {selectedEmailLog ? (
-                            <>
-                              <h3 className="font-bold text-slate-800">{selectedEmailLog.subject}</h3>
-                              <p className="text-xs text-muted mt-1 font-semibold">Recipient: {selectedEmailLog.recipient} | Logged: {new Date(selectedEmailLog.timestamp).toLocaleString()}</p>
-                            </>
-                          ) : (
-                            <span className="text-sm text-slate-400">Select log to review content</span>
-                          )}
-                        </div>
-                        
-                        <div className="email-log-viewer-pane">
-                          {selectedEmailLog && (
-                            <div className="email-iframe-container p-6 bg-white overflow-y-auto leading-relaxed shadow-sm w-full" dangerouslySetInnerHTML={{ __html: selectedEmailLog.body }}></div>
-                          )}
-                        </div>
-                      </div>
 
+              {/* Tab Content E: Categories CRUD Management */}
+              {adminTab === 'categories' && (
+                <div className="animate-slide-up">
+                  <div className="crud-grid">
+                    {/* Add Category Card */}
+                    <div className="crud-card">
+                      <h3 className="crud-card-title mb-4">Add New Category</h3>
+                      <form onSubmit={handleAddCategory}>
+                        <div className="form-group mb-4">
+                          <label className="form-label" htmlFor="add-cat-name">Category Title</label>
+                          <input 
+                            type="text" 
+                            className="form-control" 
+                            id="add-cat-name" 
+                            placeholder="e.g. Laboratory Equipment Issues" 
+                            value={newCategoryName} 
+                            onChange={(e) => setNewCategoryName(e.target.value)} 
+                            required 
+                          />
+                        </div>
+                        <button type="submit" className="btn btn-primary w-full" disabled={categorySubmitLoading}>
+                          {categorySubmitLoading ? 'Creating...' : 'Create Category'}
+                        </button>
+                      </form>
                     </div>
-                  )}
 
+                    {/* Display Active List */}
+                    <div className="crud-card" style={{ gridColumn: 'span 2' }}>
+                      <div className="crud-card-header flex justify-between items-center mb-4">
+                        <h3 className="crud-card-title">Active Complaint Categories</h3>
+                        <span className="text-xs text-muted">{categories.length} total categories</span>
+                      </div>
+                      <div className="flex flex-col gap-3">
+                        {categories.map(cat => (
+                          <div key={cat._id} className="flex justify-between items-center p-3 border border-slate-200 rounded-md bg-white">
+                            <div className="flex items-center gap-3">
+                              <span className="font-semibold text-sm">{cat.name}</span>
+                              <span className={`badge ${cat.isActive ? 'badge-resolved' : 'badge-submitted'}`}>
+                                {cat.isActive ? 'Active' : 'Disabled'}
+                              </span>
+                            </div>
+                            <div className="flex gap-2">
+                              <button 
+                                className="btn btn-secondary btn-sm text-xs" 
+                                onClick={() => handleToggleCategory(cat._id, cat.isActive)}
+                              >
+                                {cat.isActive ? 'Disable' : 'Enable'}
+                              </button>
+                              <button 
+                                className="btn btn-danger btn-sm text-xs" 
+                                onClick={() => handleDeleteCategory(cat._id, cat.name)}
+                              >
+                                Delete
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Tab Content F: Complaint Types CRUD Management */}
+              {adminTab === 'types' && (
+                <div className="animate-slide-up">
+                  <div className="crud-grid">
+                    {/* Selector Sidebar */}
+                    <div className="crud-card p-4">
+                      <h3 className="crud-card-title mb-3">Categories</h3>
+                      <div className="flex flex-col gap-2">
+                        {categories.map(cat => (
+                          <button 
+                            key={cat._id} 
+                            className={`admin-menu-item text-xs cat-selector-btn ${activeCategoryTab === cat.name ? 'active' : ''}`}
+                            onClick={() => setActiveCategoryTab(cat.name)}
+                            style={{ padding: '10px 12px', border: 0, textAlign: 'left', cursor: 'pointer', background: 'transparent' }}
+                          >
+                            {cat.name}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Types Manager Card */}
+                    <div className="crud-card" style={{ gridColumn: 'span 2' }}>
+                      <div className="crud-card-header flex justify-between items-center mb-4">
+                        <div>
+                          <span className="text-xs text-muted font-semibold">Category:</span>
+                          <h3 className="crud-card-title text-base mt-1">{activeCategoryTab}</h3>
+                        </div>
+                        <span className="text-xs text-muted">
+                          {complaintTypes.filter(t => t.category === activeCategoryTab).length} types registered
+                        </span>
+                      </div>
+
+                      {/* Add Form */}
+                      <form onSubmit={handleAddComplaintType} className="flex gap-3 mb-6">
+                        <input 
+                          type="text" 
+                          className="form-control text-sm" 
+                          placeholder="Add custom issue under this category..." 
+                          value={newTypeName} 
+                          onChange={(e) => setNewTypeName(e.target.value)} 
+                          required 
+                        />
+                        <button type="submit" className="btn btn-primary whitespace-nowrap" disabled={typeSubmitLoading}>
+                          {typeSubmitLoading ? 'Adding...' : 'Add Type'}
+                        </button>
+                      </form>
+
+                      {/* List Pills */}
+                      <div className="item-badge-list flex flex-wrap gap-2">
+                        {complaintTypes
+                          .filter(t => t.category === activeCategoryTab)
+                          .map(t => (
+                            <span key={t._id} className={`type-pill flex items-center gap-2 ${t.isActive ? '' : 'opacity-50'}`} style={{ display: 'inline-flex', padding: '6px 12px', borderRadius: '4px', background: '#f1f5f9', border: '1px solid #e2e8f0', fontSize: '13px' }}>
+                              {t.name}
+                              <button 
+                                type="button" 
+                                className="text-slate-400 hover:text-slate-600 ml-1 text-xs"
+                                onClick={() => handleToggleComplaintType(t._id, t.isActive)}
+                                style={{ border: 0, background: 'transparent', cursor: 'pointer' }}
+                                title={t.isActive ? 'Disable issue type' : 'Enable issue type'}
+                              >
+                                {t.isActive ? 'Disable' : 'Enable'}
+                              </button>
+                              {t.name !== 'Other' && (
+                                <button 
+                                  type="button" 
+                                  className="type-pill-delete ml-2" 
+                                  onClick={() => handleDeleteComplaintType(t._id, t.name)}
+                                  style={{ border: 0, background: 'transparent', cursor: 'pointer' }}
+                                >
+                                  ✕
+                                </button>
+                              )}
+                            </span>
+                          ))}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Tab Content G: Settings / Change Password */}
+              {adminTab === 'settings' && (
+                <div className="animate-slide-up" style={{ maxWidth: '500px' }}>
+                  <div className="crud-card">
+                    <h3 className="crud-card-title mb-4">Change Administrator Password</h3>
+                    <p className="text-xs text-muted mb-6">
+                      Provide your current password to authorize updates to administrator credentials.
+                    </p>
+                    <form onSubmit={handleAdminChangePassword}>
+                      <div className="form-group mb-4">
+                        <label className="form-label text-slate-600 font-semibold" htmlFor="current-pwd">Current Password</label>
+                        <input 
+                          type="password" 
+                          className="form-control" 
+                          id="current-pwd" 
+                          placeholder="••••••••" 
+                          value={adminCurrentPassword} 
+                          onChange={(e) => setAdminCurrentPassword(e.target.value)} 
+                          required 
+                        />
+                      </div>
+                      <div className="form-group mb-4">
+                        <label className="form-label text-slate-600 font-semibold" htmlFor="new-pwd">New Password</label>
+                        <input 
+                          type="password" 
+                          className="form-control" 
+                          id="new-pwd" 
+                          placeholder="••••••••" 
+                          value={adminNewPassword} 
+                          onChange={(e) => setAdminNewPassword(e.target.value)} 
+                          required 
+                        />
+                      </div>
+                      <div className="form-group mb-4">
+                        <label className="form-label text-slate-600 font-semibold" htmlFor="confirm-new-pwd">Confirm New Password</label>
+                        <input 
+                          type="password" 
+                          className="form-control" 
+                          id="confirm-new-pwd" 
+                          placeholder="••••••••" 
+                          value={adminConfirmNewPassword} 
+                          onChange={(e) => setAdminConfirmNewPassword(e.target.value)} 
+                          required 
+                        />
+                      </div>
+                      <button type="submit" className="btn btn-primary w-full" disabled={adminPasswordLoading}>
+                        {adminPasswordLoading ? 'Updating Password...' : 'Update Password'}
+                      </button>
+                    </form>
+                  </div>
                 </div>
               )}
 
@@ -1525,10 +1901,7 @@ export default function App() {
                   <label>Submitted Date</label>
                   <span>{new Date(selectedComplaint.createdAt).toLocaleString()}</span>
                 </div>
-                <div className="grv-meta-item">
-                  <label>Student Email Address</label>
-                  <span className="font-bold text-xs text-slate-600">{selectedComplaint.studentEmail}</span>
-                </div>
+
                 {selectedComplaint.category === 'Bus Issues' && (
                   <>
                     <div className="grv-meta-item">
@@ -1561,6 +1934,21 @@ export default function App() {
                 </div>
               )}
 
+              {/* Status Update History */}
+              {selectedComplaint.statusHistory && selectedComplaint.statusHistory.length > 0 && (
+                <div className="mb-6">
+                  <h4 className="font-bold text-slate-700 text-sm mb-2">Assess Status History:</h4>
+                  <div className="p-3 bg-slate-50 border border-slate-200 rounded text-xs flex flex-col gap-2 max-h-40 overflow-y-auto">
+                    {selectedComplaint.statusHistory.map((hist, idx) => (
+                      <div key={idx} className="flex justify-between border-b border-slate-100 last:border-0 pb-1">
+                        <span>Status changed from <strong className="text-slate-600">{hist.previousStatus}</strong> to <strong className="text-slate-800">{hist.newStatus}</strong></span>
+                        <span className="text-slate-500">by {hist.changedBy} at {new Date(hist.changedAt).toLocaleString()}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {/* Form to update details */}
               <form onSubmit={handleUpdateComplaintSubmit} className="border-t border-slate-100 pt-6">
                 
@@ -1568,10 +1956,11 @@ export default function App() {
                   <div className="form-group mb-4">
                     <label className="form-label text-slate-600 font-semibold" htmlFor="modal-status">Assess Status</label>
                     <select className="form-control py-2" id="modal-status" value={updateStatus} onChange={(e) => setUpdateStatus(e.target.value)}>
-                      <option value="Submitted">Submitted</option>
+                      <option value="Pending">Pending</option>
                       <option value="Under Review">Under Review</option>
-                      <option value="Assigned">Assigned</option>
+                      <option value="In Progress">In Progress</option>
                       <option value="Resolved">Resolved</option>
+                      <option value="Rejected">Rejected</option>
                       <option value="Closed">Closed</option>
                     </select>
                   </div>

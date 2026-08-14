@@ -2,6 +2,8 @@ import express from 'express';
 import jwt from 'jsonwebtoken';
 import User from '../models/User.js';
 import EmailLog from '../models/EmailLog.js';
+import AdminUser from '../models/AdminUser.js';
+import { adminProtect } from '../middleware/auth.js';
 
 const router = express.Router();
 
@@ -21,12 +23,12 @@ router.post('/register', async (req, res) => {
 
   try {
     if (!email || !password) {
-      return res.status(400).json({ message: 'Email and password are required' });
+      return res.status(400).json({ message: 'Email and password are required.' });
     }
 
     const emailTrim = email.trim().toLowerCase();
     if (!emailTrim.endsWith('@mictech.ac.in')) {
-      return res.status(400).json({ message: 'Invalid email format. Please use a valid college email address (@mictech.ac.in).' });
+      return res.status(400).json({ message: 'Invalid email format. Please use a valid college email address ending with @mictech.ac.in.' });
     }
 
     if (!acceptsToS) {
@@ -36,7 +38,7 @@ router.post('/register', async (req, res) => {
     // Check duplicate
     const userExists = await User.findOne({ email: emailTrim });
     if (userExists) {
-      return res.status(400).json({ message: 'An account with this email already exists. Please log in instead.' });
+      return res.status(400).json({ message: 'An account with this college email already exists.' });
     }
 
     // Create user
@@ -56,7 +58,7 @@ router.post('/register', async (req, res) => {
     });
   } catch (error) {
     console.error('[Registration Error]', error);
-    res.status(500).json({ message: error.message });
+    res.status(500).json({ message: 'Unable to complete registration. Please try again.' });
   }
 });
 
@@ -68,34 +70,40 @@ router.post('/login', async (req, res) => {
 
   try {
     if (!email || !password) {
-      return res.status(400).json({ message: 'Email and password are required' });
+      return res.status(400).json({ message: 'Email and password are required.' });
     }
 
     const emailTrim = email.trim().toLowerCase();
 
     // Admin Auth
     if (role === 'admin') {
-      if (emailTrim === 'admin@mictech.ac.in' && password === 'admin123') {
-        return res.json({
-          email: 'admin@mictech.ac.in',
-          id: 'admin_session',
-          role: 'admin',
-          token: generateToken('admin_session', 'admin@mictech.ac.in', 'admin')
-        });
-      } else {
-        return res.status(401).json({ message: 'Authentication failed: Invalid administrator credentials.' });
+      const admin = await AdminUser.findOne({ email: emailTrim });
+      if (!admin) {
+        return res.status(401).json({ message: 'Invalid college email or password.' });
       }
+
+      const isMatch = await admin.matchPassword(password);
+      if (!isMatch) {
+        return res.status(401).json({ message: 'Invalid college email or password.' });
+      }
+
+      return res.json({
+        email: admin.email,
+        id: admin._id,
+        role: 'admin',
+        token: generateToken(admin._id, admin.email, 'admin')
+      });
     }
 
     // Student Auth
     const user = await User.findOne({ email: emailTrim });
     if (!user) {
-      return res.status(401).json({ message: 'Account does not exist. Please register first.' });
+      return res.status(401).json({ message: 'Invalid college email or password.' });
     }
 
     const isMatch = await user.matchPassword(password);
     if (!isMatch) {
-      return res.status(401).json({ message: 'Invalid credentials. Please try again.' });
+      return res.status(401).json({ message: 'Invalid college email or password.' });
     }
 
     res.json({
@@ -106,7 +114,7 @@ router.post('/login', async (req, res) => {
     });
   } catch (error) {
     console.error('[Login Error]', error);
-    res.status(500).json({ message: error.message });
+    res.status(500).json({ message: 'Invalid college email or password.' });
   }
 });
 
@@ -120,7 +128,8 @@ router.post('/check-email', async (req, res) => {
     const user = await User.findOne({ email: emailTrim });
     res.json({ exists: !!user });
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    console.error('[Check Email Error]', error);
+    res.status(500).json({ message: 'Unable to check email.' });
   }
 });
 
@@ -153,13 +162,15 @@ router.post('/forgot-password', async (req, res) => {
       recipient: emailTrim,
       subject: emailSubject,
       body: emailBody,
-      complaintId: 'OTP-RESET'
+      complaintId: 'OTP-RESET',
+      category: 'Auth Recovery',
+      status: 'Sent'
     });
 
     res.json({ message: 'OTP logged successfully' });
   } catch (error) {
     console.error('[OTP Generation Error]', error);
-    res.status(500).json({ message: error.message });
+    res.status(500).json({ message: 'Unable to dispatch OTP.' });
   }
 });
 
@@ -173,7 +184,7 @@ router.post('/reset-password', async (req, res) => {
     const emailTrim = email.trim().toLowerCase();
     const user = await User.findOne({ email: emailTrim });
     if (!user) {
-      return res.status(404).json({ message: 'User not found' });
+      return res.status(404).json({ message: 'User account not found.' });
     }
 
     user.password = password;
@@ -182,7 +193,38 @@ router.post('/reset-password', async (req, res) => {
     res.json({ message: 'Password reset successful' });
   } catch (error) {
     console.error('[Password Reset Error]', error);
-    res.status(500).json({ message: error.message });
+    res.status(500).json({ message: 'Unable to reset password.' });
+  }
+});
+
+// @desc    Change administrator password
+// @route   POST /api/auth/change-password
+// @access  Private (Admin only)
+router.post('/change-password', adminProtect, async (req, res) => {
+  const { currentPassword, newPassword } = req.body;
+
+  try {
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ message: 'Current and new passwords are required' });
+    }
+
+    const admin = await AdminUser.findById(req.user.id);
+    if (!admin) {
+      return res.status(404).json({ message: 'Administrator account not found.' });
+    }
+
+    const isMatch = await admin.matchPassword(currentPassword);
+    if (!isMatch) {
+      return res.status(400).json({ message: 'Incorrect current password.' });
+    }
+
+    admin.password = newPassword;
+    await admin.save();
+
+    res.json({ message: 'Password changed successfully' });
+  } catch (error) {
+    console.error('[Change Password Error]', error);
+    res.status(500).json({ message: 'Unable to update password. Please try again.' });
   }
 });
 
