@@ -138,38 +138,38 @@ router.post('/', protect, async (req, res) => {
       busRoute: category === "Bus Issues" ? (busRoute || '') : undefined
     };
 
-    let emailStatus = 'Sent';
-    let emailFailureReason = '';
+    // Dispatch automated email routing and logging in the background (non-blocking)
+    (async () => {
+      let emailStatus = 'Sent';
+      let emailFailureReason = '';
 
-    try {
-      await sendGrievanceEmail({
-        complaint: emailSanitizedComplaint,
-        recipient: targetRecipient,
-        managementContact
-      });
-    } catch (emailError) {
-      console.error('[Resend Email Dispatch Error]', emailError);
-      emailStatus = 'Failed';
-      emailFailureReason = emailError.message || 'Resend transmission failed';
-    }
+      try {
+        await sendGrievanceEmail({
+          complaint: emailSanitizedComplaint,
+          recipient: targetRecipient,
+          managementContact
+        });
+      } catch (emailError) {
+        console.error('[Gmail SMTP Background Dispatch Error]', emailError);
+        emailStatus = 'Failed';
+        emailFailureReason = emailError.message || 'SMTP transmission failed';
+      }
 
-    // Save Email Log (keeping student email hidden from these public outbox logs)
-    await EmailLog.create({
-      recipient: targetRecipient,
-      subject: `[CONFIDENTIAL GRIEVANCE] - ID: ${complaintId} | Category: ${category}`,
-      body: `Confidential grievance notification logged for ID: ${complaintId}`, // Avoid exposing full body or student info in logs
-      complaintId,
-      category,
-      status: emailStatus,
-      failureReason: emailFailureReason
-    });
-
-    if (emailStatus === 'Failed') {
-      return res.status(201).json({
-        message: 'Your complaint was recorded successfully. Please try again later if you do not see an updated status.',
-        complaint
-      });
-    }
+      // Save Email Log
+      try {
+        await EmailLog.create({
+          recipient: targetRecipient,
+          subject: `[CONFIDENTIAL GRIEVANCE] - ID: ${complaintId} | Category: ${category}`,
+          body: `Confidential grievance notification logged for ID: ${complaintId}`,
+          complaintId,
+          category,
+          status: emailStatus,
+          failureReason: emailFailureReason
+        });
+      } catch (logErr) {
+        console.error('[Email Log Capture Error]', logErr);
+      }
+    })();
 
     res.status(201).json({
       message: 'Your complaint has been submitted successfully.',
