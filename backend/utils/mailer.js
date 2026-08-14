@@ -8,8 +8,8 @@ const getTransporter = () => {
 
   const host = process.env.SMTP_HOST || 'smtp.gmail.com';
   const port = process.env.SMTP_PORT || 465;
-  const user = process.env.SMTP_USER || 'complaintportal40@gmail.com';
-  const pass = process.env.SMTP_PASS || 'uohpvebgmwkdiego';
+  const user = process.env.SMTP_USER;
+  const pass = process.env.SMTP_PASS;
 
   transporter = nodemailer.createTransport({
     host,
@@ -141,7 +141,7 @@ export async function sendGrievanceEmail({
   } else {
     // Local developer environment uses Gmail SMTP
     const client = getTransporter();
-    const fromEmail = process.env.SMTP_FROM || `"Grievance Desk" <${process.env.SMTP_USER || 'complaintportal40@gmail.com'}>`;
+    const fromEmail = process.env.SMTP_FROM || `"Grievance Desk" <${process.env.SMTP_USER}>`;
     const info = await client.sendMail({
       from: fromEmail,
       to: recipient,
