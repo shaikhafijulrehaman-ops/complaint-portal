@@ -51,7 +51,9 @@ app.use(cors({
     if (!origin) return callback(null, true);
     
     const isLocal = origin.startsWith('http://localhost:') || origin.startsWith('http://127.0.0.1:');
-    if (isLocal || allowedOrigins.includes(origin)) {
+    const isVercel = origin.endsWith('.vercel.app');
+    const isRender = origin.endsWith('.onrender.com');
+    if (isLocal || isVercel || isRender || allowedOrigins.includes(origin)) {
       return callback(null, true);
     } else {
       return callback(new Error('Not allowed by CORS due to security configuration'));
