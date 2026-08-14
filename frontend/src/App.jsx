@@ -1154,11 +1154,14 @@ export default function App() {
                   )}
                 </div>
 
-                <button className="btn btn-primary btn-lg w-full mt-4" type="submit" disabled={raiseSubmitLoading}>
+                <button className="btn btn-primary btn-lg w-full mt-4 flex items-center justify-center gap-2" type="submit" disabled={raiseSubmitLoading}>
                   {raiseSubmitLoading ? (
-                    <span className="skeleton-row h-6 w-32 inline-block m-0"></span>
+                    <>
+                      <span className="spinner-loader"></span>
+                      <span>Submitting Grievance...</span>
+                    </>
                   ) : (
-                    'Submit Complaint Securely'
+                    'Submit Grievance'
                   )}
                 </button>
 
