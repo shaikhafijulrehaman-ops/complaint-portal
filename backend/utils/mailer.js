@@ -1,4 +1,5 @@
 import nodemailer from 'nodemailer';
+import { Resend } from 'resend';
 
 let transporter = null;
 
@@ -24,7 +25,8 @@ const getTransporter = () => {
 };
 
 /**
- * Sends a highly confidential student grievance email using Gmail SMTP / Nodemailer.
+ * Sends a highly confidential student grievance email using Gmail SMTP / Nodemailer (local)
+ * or Resend HTTP API (production Render web services where SMTP ports are blocked).
  * Guarantees zero student identity disclosure in the message payload.
  *
  * @param {Object} options
@@ -37,8 +39,6 @@ export async function sendGrievanceEmail({
   recipient,
   managementContact
 }) {
-  const client = getTransporter();
-  const fromEmail = process.env.SMTP_FROM || `"Grievance Desk" <${process.env.SMTP_USER || 'complaintportal40@gmail.com'}>`;
   const subject = `[CONFIDENTIAL GRIEVANCE] - ID: ${complaint.id} | Category: ${complaint.category}`;
 
   // Formulate category-specific layout fields
@@ -126,21 +126,42 @@ export async function sendGrievanceEmail({
     </div>
   `;
 
-  const info = await client.sendMail({
-    from: fromEmail,
-    to: recipient,
-    subject: subject,
-    html: htmlBody
-  });
-
-  console.log(`[Gmail SMTP Dispatched] MessageID: ${info.messageId || info.message} | Recipient: ${recipient}`);
-  return info;
+  if (process.env.RESEND_API_KEY) {
+    // Render free tier blocks outbound SMTP, so we use Resend HTTP API (port 443)
+    const resend = new Resend(process.env.RESEND_API_KEY);
+    const fromEmail = process.env.RESEND_FROM_EMAIL || 'onboarding@resend.dev';
+    const info = await resend.emails.send({
+      from: fromEmail,
+      to: recipient,
+      subject: subject,
+      html: htmlBody
+    });
+    console.log(`[Resend HTTP Dispatched] MessageID: ${info.id || info.message} | Recipient: ${recipient}`);
+    return info;
+  } else {
+    // Local developer environment uses Gmail SMTP
+    const client = getTransporter();
+    const fromEmail = process.env.SMTP_FROM || `"Grievance Desk" <${process.env.SMTP_USER || 'complaintportal40@gmail.com'}>`;
+    const info = await client.sendMail({
+      from: fromEmail,
+      to: recipient,
+      subject: subject,
+      html: htmlBody
+    });
+    console.log(`[Gmail SMTP Dispatched] MessageID: ${info.messageId || info.message} | Recipient: ${recipient}`);
+    return info;
+  }
 }
 
 /**
- * Confirms that the SMTP settings and connections are functional.
+ * Confirms that the SMTP settings and connections are functional (runs locally only).
  */
 export async function verifyTransporter() {
+  if (process.env.RESEND_API_KEY) {
+    console.log('[SMTP Verification Skipped] Resend API Key detected. Using Resend HTTP client for mail delivery.');
+    return true;
+  }
+  
   const client = getTransporter();
   if (!client) {
     console.warn('[SMTP Verification Warning] SMTP transporter could not be initialized (missing configuration).');
